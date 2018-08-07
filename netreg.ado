@@ -1,14 +1,17 @@
-program define netreg, sortpreserve eclass
+*! netreg 1.0.0 01Aug2018
+*! author: Dayou Luo 
+*! version: 1.0.0	01Aug2018
+program define netreg2, sortpreserve eclass
 version 12
 /* syntax Y X1 X2 Node1 Node2*/
 /*suppose that data are saved in colums*/
-/*undirected means that the net is undirected*/
+/*undirected for undirected net*/
 /*withnode indicates node is contained in varlist*/
 /*tol and maxit are used for reweighted iteration
 tol is tolerance, maxit is the maximum times of iteration accepeted*/
 /*n_total is the size of item in the net table*/
 /*cilevel is the confidence level. The confidence interval depends on a degrees of freedom which is kind of suspicious*/
-syntax varlist(min=1 numeric) [if] [in]  [, undirected withnode reweight tol(real 0.001) maxit(integer 50) n_total(integer 0) cilevel(integer 95)]
+syntax varlist(min=1 numeric) [if] [in]  [, undirect withnode reweight tol(real 0.001) maxit(integer 50) n_total(integer 0) cilevel(integer 95)]
 marksample touse
 tokenize "`varlist'"
 quietly foreach v in `varlist' {
@@ -28,7 +31,7 @@ if "`reweight'" == ""{
 else{
 	mata: simple = 0
 }
-if "`undirected'" == ""{
+if "`undirect'" == ""{
 	mata: directed = 1
 }
 else{
@@ -58,7 +61,7 @@ matrix colnames V=`name'
 matrix rownames V=`name'
 local df=df
 local N=N
-ereturn post b V, depname('1') dof(`df') obs(`N') esample(`touse')
+ereturn post b V, depname('1') obs(`N') esample(`touse')
 ereturn local depvar "`1'"
 ereturn local cmd "netreg"
 if `cilevel'<10 | `cilevel'>99 {
@@ -135,7 +138,7 @@ struct node function node_set(n_tot,directed){
 				if(i!=j){
 					if(i==n_tot&j==n_tot-1) break
 					c2=(c2,J(1,temp,j))
-					temp1=(j+1)..n_tot/* the mod is not necessary, and also there is something wrong here. I cannot remember what I want here*/
+					temp1=(j+1)..n_tot
 					temp3=select(temp1,temp1:-i)
 					c3=(c3,temp3)
 					temp=temp-1
@@ -171,7 +174,6 @@ struct node function node_set(n_tot,directed){
 		N.N4=J(4,1,.)
 		N.N5=J(4,1,.)
 		N.N=2
-
 		return(N)
 	}
 }
@@ -553,7 +555,7 @@ function GEE_est(Y,X,struct row_list scalar W,tol,Max_it){
 	V=luinv(temp1)
 	V=positive_variance(V)
 	/*Not sure whether df is appropriate here*/
-	df=rows(X)-length(beta_new)
+	df=1e8
 	st_matrix("b",beta_new')
 	st_matrix("V",V)
 	st_numscalar("df",df)
@@ -629,24 +631,38 @@ function full_node(n_tot,directed){
 /*n_tot is an integer greater than 1. directed shows whether the net is directed or not
 	if it is directed, the directed =1, else directed = 0*/
 	if(directed==1){
-		temp1=J(1,n_tot,(1::n_tot))
-		temp2=rowshape(temp1,1)
-		temp3=J(1,n_tot,(1..n_tot))  
-		N=(temp2\temp3)
-		temp4=mod(((1..n_tot^2):-1),(n_tot+1))
-		/*eliminate (i,i)*/
-		N=select(N,temp4)
+		N=J(2,1,.)
+		for(i=1;i<=n_tot;i++){
+			if(i==1){
+				temp1=J(1,n_tot-1,i)
+				temp2=((i+1)..n_tot)
+				N=(N,(temp2\temp1))
+			}
+			if(i==n_tot){
+				temp1=J(1,n_tot-1,i)
+				temp2=(1..(i-1))
+				N=(N,(temp2\temp1))
+			}
+			if(i<n_tot&i>1){
+				temp1=J(1,n_tot-1,i)
+				temp2=(1..(i-1),(i+1)..n_tot)
+				N=(N,(temp2\temp1))
+
+			}
+		}
+		N=select(N,colnonmissing(N))
 	}
 	else{
-		temp1=J(1,n_tot,(1::n_tot))
-		temp2=rowshape(temp1,1)
-		temp3=J(1,n_tot,(1..n_tot))  
-		N=(temp2\temp3)
-		temp4=mod(((1..n_tot^2):-1),(n_tot+1))
-		/*eliminate (i,i)*/
-		N=select(N,temp4)
-		temp1=N[2,]:<N[1,]
-		N=select(N,temp1)
+		N=J(2,1,.)
+		for(i=1;i<=n_tot;i++){
+			if(i<n_tot){
+				temp1=J(1,n_tot-i,i)
+				temp2=(i+1)..n_tot
+
+				N=(N,(temp2\temp1))
+			}
+		}
+		N=select(N,colnonmissing(N))
 	}
 	return(N')
 }
@@ -676,6 +692,7 @@ function netreg(varlist,node,simple,directed,|touse){
 		if(R<dyad_size) exit(_error("There are missing data. Node coordinates are needed"))
 		else{
 			node=full_node(n_tot,directed)
+			/*wrong*/
 			YX=(YX,node)
 		}	
 	}
